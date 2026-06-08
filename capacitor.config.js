@@ -1,3 +1,4 @@
+/** @type {import('@capacitor/cli').CapacitorConfig} */
 const config = {
   appId: 'com.financetracker.fz',
   appName: 'Finance Tracker',
@@ -11,6 +12,6 @@ const config = {
       iconColor: '#00C896',
     },
   },
-}
+};
 
-export default config
+module.exports = config;
