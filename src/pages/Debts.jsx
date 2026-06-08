@@ -9,64 +9,85 @@ export default function Debts({ navigate }) {
   const { state, dispatch, getDebtStats } = useApp()
   const [showForm, setShowForm] = useState(false)
   const [showPayForm, setShowPayForm] = useState(false)
+  const [selectedDebt, setSelectedDebt] = useState(null)
+  const [payTab, setPayTab] = useState('bayar') // 'bayar' | 'tambah'
   const [form, setForm] = useState(EMPTY_DEBT)
-  const [payForm, setPayForm] = useState({ debtId: '', amount: '', note: '', date: new Date().toISOString().slice(0, 10), accountId: '' })
+  const [payForm, setPayForm] = useState({ amount: '', note: '', date: new Date().toISOString().slice(0, 10), accountId: '' })
+  const [tambahForm, setTambahForm] = useState({ amount: '', note: '', date: new Date().toISOString().slice(0, 10), accountId: '' })
   const [tab, setTab] = useState('aktif')
   const [deleteId, setDeleteId] = useState(null)
 
   const stats = getDebtStats()
   const debts = state.debts.filter(d => tab === 'aktif' ? d.status !== 'lunas' : d.status === 'lunas')
 
-  const handleSave = () => {
-    if (!form.name || !form.total) { showToast('Lengkapi data', 'error'); return }
-    if (!form.accountId) { showToast('Pilih akun sumber', 'error'); return }
-    const total = parseInt(form.total.replace(/\D/g, ''))
-    // Kurangi saldo akun saat buat hutang/piutang
-    dispatch({ type: 'ADD_DEBT_WITH_TRANSFER', payload: {
-      debt: { id: Date.now().toString(), name: form.name, total, remaining: total, paid: 0, direction: form.direction, note: form.note, date: form.date, accountId: form.accountId, payments: [], status: 'aktif', createdAt: new Date().toISOString() },
-      accountId: form.accountId,
-      amount: total,
-      direction: form.direction,
-      date: form.date,
-    }})
-    setForm(EMPTY_DEBT)
-    setShowForm(false)
-    showToast('Hutang ditambahkan!')
-  }
-
-  const handlePay = () => {
-    if (!payForm.amount) { showToast('Masukkan jumlah', 'error'); return }
-    if (!payForm.accountId) { showToast('Pilih akun', 'error'); return }
-    const amount = parseInt(payForm.amount.replace(/\D/g, ''))
-    dispatch({ type: 'PAY_DEBT_WITH_TRANSFER', payload: { debtId: payForm.debtId, amount, note: payForm.note, date: payForm.date, accountId: payForm.accountId } })
-    setShowPayForm(false)
-    showToast('Pembayaran dicatat!')
-  }
-
-  const openPay = (debt) => {
-    setPayForm({ debtId: debt.id, amount: '', note: '', date: new Date().toISOString().slice(0, 10), accountId: debt.accountId || '' })
-    setShowPayForm(true)
-  }
-
+  // ── Account Picker ────────────────────────────────────
   const AccountPicker = ({ value, onChange, label }) => (
     <div>
       <p className="text-text-sec text-xs font-semibold mb-2">{label}</p>
-      <div className="grid grid-cols-1 gap-2">
+      <div className="space-y-2">
         {state.accounts.map(acc => (
           <button key={acc.id} onClick={() => onChange(acc.id)}
-            className="flex items-center gap-3 px-4 py-3 rounded-2xl border-2 card-press text-left"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 card-press text-left"
             style={{ borderColor: value === acc.id ? '#00C896' : '#2A2D3E', background: value === acc.id ? 'rgba(0,200,150,0.1)' : '#1E2235', cursor: 'pointer' }}>
             <span style={{ fontSize: 20 }}>{acc.icon}</span>
             <div className="flex-1">
               <p className="text-white text-sm font-semibold">{acc.name}</p>
               <p className="text-text-muted text-xs">{formatRp(acc.balance)}</p>
             </div>
-            {value === acc.id && <span style={{ color: '#00C896', fontSize: 16 }}>✓</span>}
+            {value === acc.id && <span style={{ color: '#00C896' }}>✓</span>}
           </button>
         ))}
       </div>
     </div>
   )
+
+  // ── Save new debt ─────────────────────────────────────
+  const handleSave = () => {
+    if (!form.name || !form.total) { showToast('Lengkapi data', 'error'); return }
+    if (!form.accountId) { showToast('Pilih akun', 'error'); return }
+    const total = parseInt(form.total.replace(/\D/g, ''))
+    dispatch({
+      type: 'ADD_DEBT_WITH_TRANSFER',
+      payload: {
+        debt: { id: Date.now().toString(), name: form.name, total, remaining: total, paid: 0, direction: form.direction, note: form.note, date: form.date, accountId: form.accountId, payments: [], status: 'aktif', createdAt: new Date().toISOString() },
+        accountId: form.accountId, amount: total, direction: form.direction, date: form.date,
+      }
+    })
+    setForm(EMPTY_DEBT)
+    setShowForm(false)
+    showToast('Hutang ditambahkan!')
+  }
+
+  // ── Catat pembayaran ──────────────────────────────────
+  const handlePay = () => {
+    if (!payForm.amount) { showToast('Masukkan jumlah', 'error'); return }
+    if (!payForm.accountId) { showToast('Pilih akun', 'error'); return }
+    const amount = parseInt(payForm.amount.replace(/\D/g, ''))
+    dispatch({ type: 'PAY_DEBT_WITH_TRANSFER', payload: { debtId: selectedDebt.id, amount, note: payForm.note, date: payForm.date, accountId: payForm.accountId } })
+    setShowPayForm(false)
+    showToast('Pembayaran dicatat!')
+  }
+
+  // ── Tambah hutang (nambah jumlah hutang yang ada) ─────
+  const handleTambahHutang = () => {
+    if (!tambahForm.amount) { showToast('Masukkan jumlah', 'error'); return }
+    if (!tambahForm.accountId) { showToast('Pilih akun', 'error'); return }
+    const amount = parseInt(tambahForm.amount.replace(/\D/g, ''))
+    dispatch({
+      type: 'TAMBAH_HUTANG',
+      payload: { debtId: selectedDebt.id, amount, note: tambahForm.note, date: tambahForm.date, accountId: tambahForm.accountId, direction: selectedDebt.direction }
+    })
+    setShowPayForm(false)
+    showToast('Hutang ditambahkan!')
+  }
+
+  const openPayForm = (debt) => {
+    setSelectedDebt(debt)
+    setPayTab('bayar')
+    setPayForm({ amount: '', note: '', date: new Date().toISOString().slice(0, 10), accountId: debt.accountId || '' })
+    setTambahForm({ amount: '', note: '', date: new Date().toISOString().slice(0, 10), accountId: debt.accountId || '' })
+    setShowPayForm(true)
+  }
 
   return (
     <div className="h-full flex flex-col bg-bg">
@@ -89,7 +110,7 @@ export default function Debts({ navigate }) {
           </div>
         </div>
 
-        {/* Tab */}
+        {/* Tab aktif/lunas */}
         <div className="flex bg-surface rounded-2xl border border-border p-1 mb-4">
           {['aktif', 'lunas'].map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -112,7 +133,8 @@ export default function Debts({ navigate }) {
               <div key={debt.id} className="bg-card rounded-2xl border border-border p-4 mb-3">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: isMeminjamkan ? 'rgba(0,200,150,0.15)' : 'rgba(255,107,107,0.15)' }}>
+                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
+                      style={{ background: isMeminjamkan ? 'rgba(0,200,150,0.15)' : 'rgba(255,107,107,0.15)' }}>
                       <span style={{ fontSize: 22 }}>{isMeminjamkan ? '💸' : '🤝'}</span>
                     </div>
                     <div>
@@ -120,7 +142,7 @@ export default function Debts({ navigate }) {
                       <p className="text-xs font-semibold" style={{ color: isMeminjamkan ? '#00C896' : '#FF6B6B' }}>
                         {isMeminjamkan ? 'Lo meminjamkan' : 'Lo meminjam'}
                       </p>
-                      {acc && <p className="text-text-muted text-xs mt-0.5">🏦 {acc.icon} {acc.name}</p>}
+                      {acc && <p className="text-text-muted text-xs mt-0.5">{acc.icon} {acc.name}</p>}
                     </div>
                   </div>
                   <button onClick={() => setDeleteId(debt.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16 }}>🗑️</button>
@@ -135,15 +157,20 @@ export default function Debts({ navigate }) {
                 <ProgressBar pct={pct} color={isMeminjamkan ? '#00C896' : '#FF6B6B'} />
                 <p className="text-text-muted text-xs mt-1 mb-3">{Math.round(pct)}% terbayar</p>
 
+                {/* Riwayat */}
                 {debt.payments?.length > 0 && (
                   <div className="mb-3 p-3 rounded-xl" style={{ background: '#0F1117' }}>
-                    <p className="text-text-sec text-xs font-semibold mb-2">Riwayat Pembayaran</p>
+                    <p className="text-text-sec text-xs font-semibold mb-2">Riwayat</p>
                     {debt.payments.slice(-3).map(p => {
                       const pAcc = state.accounts.find(a => a.id === p.accountId)
                       return (
                         <div key={p.id} className="flex justify-between py-1">
-                          <span className="text-text-muted text-xs">{formatDate(p.date)}{p.note ? ` · ${p.note}` : ''}{pAcc ? ` · ${pAcc.icon}${pAcc.name}` : ''}</span>
-                          <span className="text-xs font-bold" style={{ color: '#00C896' }}>+{formatRp(p.amount)}</span>
+                          <span className="text-text-muted text-xs">
+                            {p.isTambah ? '➕' : '💰'} {formatDate(p.date)}{p.note ? ` · ${p.note}` : ''}{pAcc ? ` · ${pAcc.icon}${pAcc.name}` : ''}
+                          </span>
+                          <span className="text-xs font-bold" style={{ color: p.isTambah ? '#FF6B6B' : '#00C896' }}>
+                            {p.isTambah ? '+Hutang' : '+Bayar'} {formatRp(p.amount)}
+                          </span>
                         </div>
                       )
                     })}
@@ -153,10 +180,10 @@ export default function Debts({ navigate }) {
                 {debt.note && <p className="text-text-muted text-xs mb-3">📝 {debt.note}</p>}
 
                 {debt.status !== 'lunas' && (
-                  <button onClick={() => openPay(debt)}
+                  <button onClick={() => openPayForm(debt)}
                     className="w-full py-2.5 rounded-xl font-bold text-sm card-press"
                     style={{ background: 'linear-gradient(135deg, #00C896, #00A87E)', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                    💰 Catat Pembayaran
+                    💰 Catat Pembayaran / Tambah Hutang
                   </button>
                 )}
               </div>
@@ -165,13 +192,16 @@ export default function Debts({ navigate }) {
         )}
       </div>
 
-      {/* Add Debt Form */}
+      {/* ── Tambah Hutang/Piutang Form ── */}
       <BottomSheet show={showForm} onClose={() => setShowForm(false)} title="Tambah Hutang/Piutang">
         <div className="p-4 space-y-4">
           <div>
             <p className="text-text-sec text-xs font-semibold mb-2">Jenis</p>
             <div className="flex gap-2">
-              {[{ key: 'meminjamkan', label: '💸 Gue meminjamkan', color: '#00C896' }, { key: 'dipinjam', label: '🤝 Gue meminjam', color: '#FF6B6B' }].map(d => (
+              {[
+                { key: 'meminjamkan', label: '💸 Gue meminjamkan', color: '#00C896' },
+                { key: 'dipinjam', label: '🤝 Gue meminjam', color: '#FF6B6B' }
+              ].map(d => (
                 <button key={d.key} onClick={() => setForm(f => ({ ...f, direction: d.key }))}
                   className="flex-1 py-2.5 rounded-2xl border-2 card-press text-xs font-bold"
                   style={{ borderColor: form.direction === d.key ? d.color : '#2A2D3E', background: form.direction === d.key ? d.color + '20' : 'transparent', color: form.direction === d.key ? d.color : '#A0A8C0', cursor: 'pointer' }}>
@@ -184,7 +214,7 @@ export default function Debts({ navigate }) {
           <AccountPicker
             value={form.accountId}
             onChange={id => setForm(f => ({ ...f, accountId: id }))}
-            label={form.direction === 'meminjamkan' ? '🏦 Transfer dari Akun (uang keluar)' : '🏦 Akun Penerima (uang masuk)'}
+            label={form.direction === 'meminjamkan' ? '🏦 Dari Akun (uang keluar)' : '🏦 Ke Akun (uang masuk)'}
           />
 
           <div>
@@ -195,7 +225,9 @@ export default function Debts({ navigate }) {
 
           <div>
             <p className="text-text-sec text-xs font-semibold mb-2">Jumlah</p>
-            <input type="text" inputMode="numeric" value={form.total ? new Intl.NumberFormat('id-ID').format(parseInt(form.total.replace(/\D/g,'') || 0)) : ''} onChange={e => setForm(f => ({ ...f, total: e.target.value.replace(/\D/g,'') }))} placeholder="0"
+            <input type="text" inputMode="numeric"
+              value={form.total ? new Intl.NumberFormat('id-ID').format(parseInt(form.total.replace(/\D/g,'') || 0)) : ''}
+              onChange={e => setForm(f => ({ ...f, total: e.target.value.replace(/\D/g,'') }))} placeholder="0"
               className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
           </div>
 
@@ -215,34 +247,84 @@ export default function Debts({ navigate }) {
         </div>
       </BottomSheet>
 
-      {/* Pay Form */}
-      <BottomSheet show={showPayForm} onClose={() => setShowPayForm(false)} title="Catat Pembayaran">
-        <div className="p-4 space-y-4">
-          <AccountPicker
-            value={payForm.accountId}
-            onChange={id => setPayForm(f => ({ ...f, accountId: id }))}
-            label="🏦 Akun Transfer"
-          />
-          <div>
-            <p className="text-text-sec text-xs font-semibold mb-2">Jumlah Pembayaran</p>
-            <input type="text" inputMode="numeric" value={payForm.amount ? new Intl.NumberFormat('id-ID').format(parseInt(payForm.amount.replace(/\D/g,'') || 0)) : ''} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value.replace(/\D/g,'') }))} placeholder="0"
-              className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+      {/* ── Bayar / Tambah Hutang Form ── */}
+      <BottomSheet show={showPayForm} onClose={() => setShowPayForm(false)} title={`${selectedDebt?.name || ''}`}>
+        <div className="p-4">
+          {/* Tab bayar vs tambah hutang */}
+          <div className="flex bg-surface rounded-2xl border border-border p-1 mb-4">
+            <button onClick={() => setPayTab('bayar')}
+              className="flex-1 py-2 rounded-xl font-semibold text-sm card-press"
+              style={{ background: payTab === 'bayar' ? '#22263A' : 'transparent', color: payTab === 'bayar' ? '#00C896' : '#5A6080', border: 'none', cursor: 'pointer' }}>
+              💰 Catat Bayar
+            </button>
+            <button onClick={() => setPayTab('tambah')}
+              className="flex-1 py-2 rounded-xl font-semibold text-sm card-press"
+              style={{ background: payTab === 'tambah' ? '#22263A' : 'transparent', color: payTab === 'tambah' ? '#FF6B6B' : '#5A6080', border: 'none', cursor: 'pointer' }}>
+              ➕ Tambah Hutang
+            </button>
           </div>
-          <div>
-            <p className="text-text-sec text-xs font-semibold mb-2">Tanggal</p>
-            <input type="date" value={payForm.date} onChange={e => setPayForm(f => ({ ...f, date: e.target.value }))}
-              className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none" style={{ colorScheme: 'dark' }} />
-          </div>
-          <div>
-            <p className="text-text-sec text-xs font-semibold mb-2">Catatan</p>
-            <input value={payForm.note} onChange={e => setPayForm(f => ({ ...f, note: e.target.value }))} placeholder="Transfer, cash, dll..."
-              className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
-          </div>
-          <Button onClick={handlePay}>Catat Pembayaran</Button>
+
+          {payTab === 'bayar' ? (
+            <div className="space-y-4">
+              <p className="text-text-muted text-xs">Catat pembayaran dari <span className="text-white font-semibold">{selectedDebt?.name}</span></p>
+              <AccountPicker
+                value={payForm.accountId}
+                onChange={id => setPayForm(f => ({ ...f, accountId: id }))}
+                label="🏦 Akun Transfer"
+              />
+              <div>
+                <p className="text-text-sec text-xs font-semibold mb-2">Jumlah Bayar</p>
+                <input type="text" inputMode="numeric"
+                  value={payForm.amount ? new Intl.NumberFormat('id-ID').format(parseInt(payForm.amount.replace(/\D/g,'') || 0)) : ''}
+                  onChange={e => setPayForm(f => ({ ...f, amount: e.target.value.replace(/\D/g,'') }))} placeholder="0"
+                  className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+              </div>
+              <div>
+                <p className="text-text-sec text-xs font-semibold mb-2">Tanggal</p>
+                <input type="date" value={payForm.date} onChange={e => setPayForm(f => ({ ...f, date: e.target.value }))}
+                  className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none" style={{ colorScheme: 'dark' }} />
+              </div>
+              <div>
+                <p className="text-text-sec text-xs font-semibold mb-2">Catatan</p>
+                <input value={payForm.note} onChange={e => setPayForm(f => ({ ...f, note: e.target.value }))} placeholder="Transfer, cash, dll..."
+                  className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+              </div>
+              <Button onClick={handlePay}>Simpan Pembayaran</Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-text-muted text-xs">Tambah jumlah hutang untuk <span className="text-white font-semibold">{selectedDebt?.name}</span> — misalnya dia ngutang lagi</p>
+              <AccountPicker
+                value={tambahForm.accountId}
+                onChange={id => setTambahForm(f => ({ ...f, accountId: id }))}
+                label={selectedDebt?.direction === 'meminjamkan' ? '🏦 Dari Akun (uang keluar lagi)' : '🏦 Ke Akun (uang masuk lagi)'}
+              />
+              <div>
+                <p className="text-text-sec text-xs font-semibold mb-2">Jumlah Tambahan</p>
+                <input type="text" inputMode="numeric"
+                  value={tambahForm.amount ? new Intl.NumberFormat('id-ID').format(parseInt(tambahForm.amount.replace(/\D/g,'') || 0)) : ''}
+                  onChange={e => setTambahForm(f => ({ ...f, amount: e.target.value.replace(/\D/g,'') }))} placeholder="0"
+                  className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+              </div>
+              <div>
+                <p className="text-text-sec text-xs font-semibold mb-2">Tanggal</p>
+                <input type="date" value={tambahForm.date} onChange={e => setTambahForm(f => ({ ...f, date: e.target.value }))}
+                  className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none" style={{ colorScheme: 'dark' }} />
+              </div>
+              <div>
+                <p className="text-text-sec text-xs font-semibold mb-2">Catatan</p>
+                <input value={tambahForm.note} onChange={e => setTambahForm(f => ({ ...f, note: e.target.value }))} placeholder="Alasan tambahan hutang..."
+                  className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+              </div>
+              <Button onClick={handleTambahHutang}>Tambah Hutang</Button>
+            </div>
+          )}
         </div>
       </BottomSheet>
 
-      <ConfirmDialog show={!!deleteId} title="Hapus Hutang" message="Yakin ingin menghapus data hutang ini?" danger onConfirm={() => { dispatch({ type: 'DELETE_DEBT', payload: deleteId }); setDeleteId(null); showToast('Dihapus') }} onCancel={() => setDeleteId(null)} />
+      <ConfirmDialog show={!!deleteId} title="Hapus Hutang" message="Yakin ingin menghapus data hutang ini?" danger
+        onConfirm={() => { dispatch({ type: 'DELETE_DEBT', payload: deleteId }); setDeleteId(null); showToast('Dihapus') }}
+        onCancel={() => setDeleteId(null)} />
     </div>
   )
 }

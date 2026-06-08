@@ -8,8 +8,11 @@ const EMPTY_FORM = { name: '', type: 'cash', balance: '', color: ACCOUNT_COLORS[
 export default function Accounts({ navigate }) {
   const { state, dispatch, getTotalBalance } = useApp()
   const [showForm, setShowForm] = useState(false)
+  const [showAdjust, setShowAdjust] = useState(false)
   const [editAcc, setEditAcc] = useState(null)
+  const [adjustAcc, setAdjustAcc] = useState(null)
   const [form, setForm] = useState(EMPTY_FORM)
+  const [adjustAmount, setAdjustAmount] = useState('')
   const [deleteId, setDeleteId] = useState(null)
 
   const total = getTotalBalance()
@@ -26,10 +29,15 @@ export default function Accounts({ navigate }) {
     setShowForm(true)
   }
 
+  const openAdjust = (acc) => {
+    setAdjustAcc(acc)
+    setAdjustAmount(acc.balance.toString())
+    setShowAdjust(true)
+  }
+
   const handleSave = () => {
     if (!form.name.trim()) { showToast('Masukkan nama akun', 'error'); return }
     const typeObj = ACCOUNT_TYPES.find(t => t.id === form.type)
-
     if (editAcc) {
       dispatch({ type: 'UPDATE_ACC', payload: { ...editAcc, name: form.name.trim(), type: form.type, color: form.color, icon: typeObj?.icon || '💰' } })
       showToast('Akun diperbarui!')
@@ -41,7 +49,22 @@ export default function Accounts({ navigate }) {
     setShowForm(false)
   }
 
-  // Group by type
+  const handleAdjustBalance = () => {
+    const newBalance = parseInt(adjustAmount.replace(/\D/g, '') || '0')
+    dispatch({ type: 'UPDATE_ACC', payload: { ...adjustAcc, balance: newBalance } })
+    setShowAdjust(false)
+    showToast('Saldo diperbarui!')
+  }
+
+  // Move account up/down
+  const moveAccount = (index, dir) => {
+    const accounts = [...state.accounts]
+    const swapIdx = index + dir
+    if (swapIdx < 0 || swapIdx >= accounts.length) return
+    ;[accounts[index], accounts[swapIdx]] = [accounts[swapIdx], accounts[index]]
+    dispatch({ type: 'REORDER_ACCOUNTS', payload: accounts })
+  }
+
   const grouped = ACCOUNT_TYPES.map(t => ({
     ...t,
     accounts: state.accounts.filter(a => a.type === t.id)
@@ -65,7 +88,7 @@ export default function Accounts({ navigate }) {
           <p className="text-white/70 text-xs">{state.accounts.length} akun terhubung</p>
         </div>
 
-        {/* Type Distribution */}
+        {/* Distribution */}
         {grouped.length > 0 && (
           <div className="bg-card rounded-2xl border border-border p-4 mb-4">
             <p className="text-white font-bold text-sm mb-3">Distribusi per Tipe</p>
@@ -94,30 +117,53 @@ export default function Accounts({ navigate }) {
         {state.accounts.length === 0 ? (
           <EmptyState emoji="🏦" title="Belum ada akun" subtitle="Tambahkan akun bank, e-wallet, atau tunai" action="Tambah Akun" onAction={openAdd} />
         ) : (
-          state.accounts.map(acc => {
-            const typeObj = getAccountType(acc.type)
-            return (
-              <div key={acc.id} className="flex items-center gap-3 bg-card rounded-2xl border border-border p-4 mb-3 card-press" onClick={() => openEdit(acc)}>
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: acc.color + '20' }}>
-                  <span style={{ fontSize: 24 }}>{acc.icon}</span>
+          <>
+            <p className="text-text-muted text-xs mb-2 px-1">Tap untuk edit · Tahan ↑↓ untuk atur urutan</p>
+            {state.accounts.map((acc, index) => {
+              const typeObj = getAccountType(acc.type)
+              return (
+                <div key={acc.id} className="flex items-center gap-2 mb-3">
+                  {/* Reorder buttons */}
+                  <div className="flex flex-col gap-1">
+                    <button onClick={() => moveAccount(index, -1)} disabled={index === 0}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-xs"
+                      style={{ background: index === 0 ? '#1A1D27' : '#22263A', color: index === 0 ? '#3A3D4E' : '#A0A8C0', border: 'none', cursor: index === 0 ? 'default' : 'pointer' }}>▲</button>
+                    <button onClick={() => moveAccount(index, 1)} disabled={index === state.accounts.length - 1}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-xs"
+                      style={{ background: index === state.accounts.length - 1 ? '#1A1D27' : '#22263A', color: index === state.accounts.length - 1 ? '#3A3D4E' : '#A0A8C0', border: 'none', cursor: index === state.accounts.length - 1 ? 'default' : 'pointer' }}>▼</button>
+                  </div>
+
+                  {/* Card */}
+                  <div className="flex-1 flex items-center gap-3 bg-card rounded-2xl border border-border p-4 card-press" onClick={() => openEdit(acc)}>
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: acc.color + '20' }}>
+                      <span style={{ fontSize: 24 }}>{acc.icon}</span>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-white font-bold">{acc.name}</p>
+                      <p className="text-text-muted text-xs mt-0.5">{typeObj.label}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-base" style={{ color: acc.balance >= 0 ? acc.color : '#FF6B6B' }}>{formatRp(acc.balance)}</p>
+                      <div className="flex gap-2 mt-1 justify-end">
+                        <button onClick={e => { e.stopPropagation(); openAdjust(acc) }}
+                          className="text-xs px-2 py-0.5 rounded-lg card-press"
+                          style={{ background: 'rgba(0,200,150,0.15)', color: '#00C896', border: 'none', cursor: 'pointer' }}>
+                          ✏️ Edit Saldo
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); setDeleteId(acc.id) }}
+                          className="text-text-muted text-xs card-press"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer' }}>🗑️</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <p className="text-white font-bold">{acc.name}</p>
-                  <p className="text-text-muted text-xs mt-0.5">{typeObj.label}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-black text-base" style={{ color: acc.balance >= 0 ? acc.color : '#FF6B6B' }}>{formatRp(acc.balance)}</p>
-                  <button onClick={e => { e.stopPropagation(); setDeleteId(acc.id) }}
-                    className="text-text-muted text-xs mt-1 card-press"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer' }}>🗑️ Hapus</button>
-                </div>
-              </div>
-            )
-          })
+              )
+            })}
+          </>
         )}
       </div>
 
-      {/* Form */}
+      {/* Edit Akun Form */}
       <BottomSheet show={showForm} onClose={() => setShowForm(false)} title={editAcc ? 'Edit Akun' : 'Tambah Akun'}>
         <div className="p-4 space-y-4">
           <div>
@@ -126,7 +172,6 @@ export default function Accounts({ navigate }) {
               placeholder="Contoh: BCA, GoPay, Dompet..."
               className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
           </div>
-
           <div>
             <p className="text-text-sec text-xs font-semibold mb-2">Tipe</p>
             <div className="grid grid-cols-4 gap-2">
@@ -140,7 +185,6 @@ export default function Accounts({ navigate }) {
               ))}
             </div>
           </div>
-
           {!editAcc && (
             <div>
               <p className="text-text-sec text-xs font-semibold mb-2">Saldo Awal</p>
@@ -151,7 +195,6 @@ export default function Accounts({ navigate }) {
                 className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
             </div>
           )}
-
           <div>
             <p className="text-text-sec text-xs font-semibold mb-2">Warna</p>
             <div className="flex gap-2 flex-wrap">
@@ -162,8 +205,23 @@ export default function Accounts({ navigate }) {
               ))}
             </div>
           </div>
-
           <Button onClick={handleSave}>Simpan</Button>
+        </div>
+      </BottomSheet>
+
+      {/* Edit Saldo Form */}
+      <BottomSheet show={showAdjust} onClose={() => setShowAdjust(false)} title={`Edit Saldo — ${adjustAcc?.name}`}>
+        <div className="p-4 space-y-4">
+          <p className="text-text-muted text-xs">Masukkan saldo terbaru untuk akun <span className="text-white font-semibold">{adjustAcc?.name}</span>. Ini tidak akan membuat transaksi baru.</p>
+          <div>
+            <p className="text-text-sec text-xs font-semibold mb-2">Saldo Baru</p>
+            <input type="text" inputMode="numeric"
+              value={adjustAmount ? new Intl.NumberFormat('id-ID').format(parseInt(adjustAmount.replace(/\D/g,'') || 0)) : ''}
+              onChange={e => setAdjustAmount(e.target.value.replace(/\D/g,''))}
+              placeholder="0"
+              className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+          </div>
+          <Button onClick={handleAdjustBalance}>Simpan Saldo</Button>
         </div>
       </BottomSheet>
 

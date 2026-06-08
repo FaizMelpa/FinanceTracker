@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { LOGO_CLEAN } from '../assets/logo_clean'
 
 export default function SplashScreen({ onDone }) {
   const [fade, setFade] = useState(false)
@@ -11,18 +12,16 @@ export default function SplashScreen({ onDone }) {
 
   return (
     <div className={`fixed inset-0 bg-bg flex flex-col items-center justify-center z-50 transition-opacity duration-400 ${fade ? 'opacity-0' : 'opacity-100'}`}>
-      {/* Logo */}
+      {/* Logo kiriman — tanpa tulisan di dalam logo */}
       <div className="relative mb-6">
-        <div className="w-24 h-24 rounded-3xl flex items-center justify-center shadow-2xl"
-          style={{ background: 'linear-gradient(135deg, #00C896 0%, #00A87E 100%)' }}>
-          <span className="text-5xl">💰</span>
-        </div>
-        {/* F watermark */}
-        <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-bg border-2 border-primary flex items-center justify-center">
-          <span className="text-primary font-black text-sm">F</span>
-        </div>
+        <img
+          src={LOGO_CLEAN}
+          alt="Finance Tracker"
+          style={{ width: 96, height: 96, objectFit: 'contain' }}
+        />
       </div>
 
+      {/* Tulisan tetap seperti bawaan */}
       <h1 className="text-2xl font-black text-white tracking-tight mb-1">Finance Tracker</h1>
       <p className="text-text-muted text-sm">by Dncelzie</p>
 

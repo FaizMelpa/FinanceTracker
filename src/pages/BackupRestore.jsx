@@ -3,7 +3,19 @@ import { useApp } from '../context/AppContext'
 import { PageHeader, Button, ConfirmDialog, showToast } from '../components/UI'
 import { formatDate, MONEFY_CAT_MAP } from '../utils/constants'
 
-const DOWNLOAD_PATH = '/storage/emulated/0/Download/FinanceTracker'
+// Coba import Capacitor Filesystem — kalau jalan di APK pakai ini,
+// kalau di browser biasa fallback ke download biasa
+let FilesystemAPI = null
+let DirectoryEnum = null
+try {
+  const cap = require('@capacitor/filesystem')
+  FilesystemAPI = cap.Filesystem
+  DirectoryEnum = cap.Directory
+} catch (e) {
+  // browser mode, gunakan fallback
+}
+
+const FOLDER = 'FinanceTracker'
 
 export default function BackupRestore({ navigate }) {
   const { state, dispatch } = useApp()
@@ -14,69 +26,99 @@ export default function BackupRestore({ navigate }) {
   const [confirmImport, setConfirmImport] = useState(false)
   const [pendingImport, setPendingImport] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [loading, setLoading] = useState(false)
 
-  // ── CSV helpers ──────────────────────────────────────
-  const toCSV = (rows, headers) => {
-    const escape = v => {
-      const s = String(v ?? '')
-      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
-    }
-    return [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n')
+  // ── Timestamp ─────────────────────────────────────────
+  const getStamp = () => {
+    const now = new Date()
+    return `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`
   }
 
-  const downloadCSV = (content, filename) => {
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  // ── Write file ke Android Downloads/FinanceTracker/ ──
+  const writeToDownloads = async (filename, content) => {
+    if (FilesystemAPI && DirectoryEnum) {
+      try {
+        // Buat folder dulu kalau belum ada
+        try {
+          await FilesystemAPI.mkdir({
+            path: FOLDER,
+            directory: DirectoryEnum.ExternalStorage,
+            recursive: true,
+          })
+        } catch (e) {
+          // folder udah ada, lanjut
+        }
+        await FilesystemAPI.writeFile({
+          path: `${FOLDER}/${filename}`,
+          data: content,
+          directory: DirectoryEnum.ExternalStorage,
+          encoding: 'utf8',
+          recursive: true,
+        })
+        return true
+      } catch (e) {
+        console.error('Filesystem write error:', e)
+        return false
+      }
+    }
+    return false
+  }
+
+  // ── Fallback download di browser ─────────────────────
+  const browserDownload = (content, filename) => {
+    const blob = new Blob([content], { type: 'application/json;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = filename
+    document.body.appendChild(a)
     a.click()
+    document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
 
   // ── BACKUP ────────────────────────────────────────────
-  const handleBackup = () => {
+  const handleBackup = async () => {
+    setLoading(true)
     try {
-      const now = new Date()
-      const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`
+      const stamp = getStamp()
+      const filename = `FinanceTracker_Backup_${stamp}.json`
 
-      // Transactions CSV
-      const txHeaders = ['ID','Tipe','Jumlah','Kategori','Akun','Catatan','Tanggal','Transfer']
-      const txRows = state.transactions.map(t => ({
-        'ID': t.id,
-        'Tipe': t.type === 'income' ? 'Pemasukan' : 'Pengeluaran',
-        'Jumlah': t.amount,
-        'Kategori': t.category,
-        'Akun': state.accounts.find(a => a.id === t.accountId)?.name || '',
-        'Catatan': t.note || '',
-        'Tanggal': formatDate(t.date),
-        'Transfer': t.isTransfer ? 'Ya' : 'Tidak',
-      }))
-      downloadCSV(toCSV(txRows, txHeaders), `FinanceTracker_Transaksi_${stamp}.csv`)
+      // Data backup lengkap dalam JSON
+      const backupData = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        data: state,
+      }
+      const content = JSON.stringify(backupData, null, 2)
 
-      // Full backup JSON embedded in CSV (for restore)
-      const rawContent = `data\n"${JSON.stringify(state).replace(/"/g, '""')}"`
-      downloadCSV(rawContent, `FinanceTracker_Backup_${stamp}.csv`)
+      const saved = await writeToDownloads(filename, content)
 
-      showToast('Backup berhasil! Cek folder Downloads.')
+      if (saved) {
+        showToast(`✅ Tersimpan di Downloads/${FOLDER}/${filename}`)
+      } else {
+        // Fallback browser download
+        browserDownload(content, filename)
+        showToast('Backup didownload! Cek folder Downloads.')
+      }
     } catch (e) {
       showToast('Gagal backup: ' + e.message, 'error')
     }
+    setLoading(false)
   }
 
-  // ── RESTORE ───────────────────────────────────────────
+  // ── READ file dari storage ────────────────────────────
   const handleRestoreFile = (e) => {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
       try {
-        const text = ev.target.result
-        const lines = text.split('\n')
-        if (lines[0].trim() !== 'data') { showToast('File backup tidak valid', 'error'); return }
-        const jsonStr = lines[1].replace(/^"|"$/g, '').replace(/""/g, '"')
-        const parsed = JSON.parse(jsonStr)
-        setPendingRestore(parsed)
+        const parsed = JSON.parse(ev.target.result)
+        // Support format baru (dengan wrapper) dan format lama (langsung state)
+        const stateData = parsed.data || parsed
+        if (!stateData.accounts) { showToast('File backup tidak valid', 'error'); return }
+        setPendingRestore(stateData)
         setConfirmRestore(true)
       } catch (e) {
         showToast('File tidak bisa dibaca: ' + e.message, 'error')
@@ -132,7 +174,11 @@ export default function BackupRestore({ navigate }) {
           try { parsedDate = new Date(dateRaw).toISOString(); if (isNaN(new Date(dateRaw))) throw new Error() }
           catch { parsedDate = new Date().toISOString() }
 
-          transactions.push({ id: `monefy_${Date.now()}_${Math.random().toString(36).slice(2)}`, type, amount: Math.abs(amount), category: mappedCat, accountId: accountRaw || 'Import', note: noteRaw, date: parsedDate, createdAt: new Date().toISOString(), importedFrom: 'monefy' })
+          transactions.push({
+            id: `monefy_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            type, amount: Math.abs(amount), category: mappedCat, accountId: accountRaw || 'Import',
+            note: noteRaw, date: parsedDate, createdAt: new Date().toISOString(), importedFrom: 'monefy'
+          })
         })
 
         setPendingImport({ transactions, accountNames: [...accountNames] })
@@ -209,17 +255,19 @@ export default function BackupRestore({ navigate }) {
             </div>
             <div>
               <p className="text-white font-bold">Backup Data</p>
-              <p className="text-text-muted text-xs">Export ke file CSV</p>
+              <p className="text-text-muted text-xs">Simpan ke file .json</p>
             </div>
           </div>
           <div className="bg-elevated rounded-xl p-3 mb-3">
-            <p className="text-text-sec text-xs font-semibold mb-1">📂 Lokasi file:</p>
-            <p className="text-text-muted text-xs font-mono">{DOWNLOAD_PATH}/</p>
+            <p className="text-text-sec text-xs font-semibold mb-1">📂 Lokasi backup di HP:</p>
+            <p className="text-text-muted text-xs font-mono">/storage/emulated/0/Download/{FOLDER}/</p>
           </div>
           <p className="text-text-muted text-xs mb-3">
-            2 file akan didownload: data transaksi + file backup lengkap untuk restore.
+            Semua data (transaksi, akun, hutang, investasi) disimpan dalam satu file .json
           </p>
-          <Button onClick={handleBackup}>💾 Backup Sekarang</Button>
+          <Button onClick={handleBackup} disabled={loading}>
+            {loading ? '⏳ Menyimpan...' : '💾 Backup Sekarang'}
+          </Button>
         </div>
 
         {/* Restore */}
@@ -230,14 +278,14 @@ export default function BackupRestore({ navigate }) {
             </div>
             <div>
               <p className="text-white font-bold">Restore Data</p>
-              <p className="text-text-muted text-xs">Pulihkan dari file backup (.csv)</p>
+              <p className="text-text-muted text-xs">Pulihkan dari file backup .json</p>
             </div>
           </div>
           <p className="text-text-muted text-xs mb-3">
-            ⚠️ Pilih file <span style={{ color: '#00C896' }}>FinanceTracker_Backup_*.csv</span>. Data saat ini akan <span style={{ color: '#FF6B6B' }}>ditimpa</span>.
+            ⚠️ Pilih file <span style={{ color: '#00C896' }}>FinanceTracker_Backup_*.json</span>. Data saat ini akan <span style={{ color: '#FF6B6B' }}>ditimpa</span>.
           </p>
-          <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleRestoreFile} className="hidden" />
-          <Button variant="secondary" onClick={() => fileRef.current?.click()}>📂 Pilih File Backup CSV</Button>
+          <input ref={fileRef} type="file" accept=".json" onChange={handleRestoreFile} className="hidden" />
+          <Button variant="secondary" onClick={() => fileRef.current?.click()}>📂 Pilih File Backup</Button>
         </div>
 
         {/* Import Monefy */}
@@ -267,9 +315,9 @@ export default function BackupRestore({ navigate }) {
           <div className="space-y-2">
             {[
               'Backup rutin minimal seminggu sekali',
-              'File backup tersimpan di Downloads/FinanceTracker',
-              'Gunakan file FinanceTracker_Backup_*.csv untuk restore',
-              'Jangan hapus file backup lama, simpan beberapa versi',
+              'File tersimpan di Downloads/FinanceTracker/ di HP',
+              'Pindah HP? Backup dulu, lalu restore di HP baru',
+              'Simpan juga ke Google Drive biar lebih aman',
             ].map((tip, i) => (
               <div key={i} className="flex gap-2">
                 <span style={{ color: '#00C896', fontSize: 12, marginTop: 1 }}>•</span>

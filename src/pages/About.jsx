@@ -1,5 +1,6 @@
 import React from 'react'
 import { PageHeader } from '../components/UI'
+import { LOGO_CLEAN } from '../assets/logo_clean'
 
 export default function About({ navigate }) {
   const features = [
@@ -24,25 +25,25 @@ export default function About({ navigate }) {
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 pb-8">
         {/* App Identity */}
         <div className="flex flex-col items-center py-8">
-          <div className="relative mb-4">
-            <div className="w-24 h-24 rounded-3xl flex items-center justify-center shadow-2xl"
-              style={{ background: 'linear-gradient(135deg, #00C896 0%, #00A87E 100%)' }}>
-              <span style={{ fontSize: 48 }}>💰</span>
-            </div>
-            <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full border-2 flex items-center justify-center"
-              style={{ background: '#0F1117', borderColor: '#00C896' }}>
-              <span className="font-black text-sm" style={{ color: '#00C896' }}>F</span>
-            </div>
+          {/* Logo tanpa tulisan di dalamnya */}
+          <div className="mb-4">
+            <img
+              src={LOGO_CLEAN}
+              alt="Finance Tracker"
+              style={{ width: 96, height: 96, objectFit: 'contain' }}
+            />
           </div>
 
+          {/* Tulisan tetap seperti bawaan */}
           <h1 className="text-white font-black text-2xl">Finance Tracker</h1>
           <p className="text-text-muted text-sm mt-1">Versi 1.0.0</p>
 
+          {/* Quote — by Dncelzie diganti jadi Ali Bin Abi Thalib, warna putih */}
           <div className="mt-6 px-6 py-5 rounded-3xl border border-border text-center w-full" style={{ background: '#1A1D27' }}>
             <p className="font-semibold text-base mb-3 leading-relaxed" style={{ color: '#00C896' }}>
               "Apapun yang menjadi takdirmu akan mencari jalannya untuk menemukanmu"
             </p>
-            <p className="text-text-muted text-sm">by <span className="text-white font-bold">Dncelzie</span></p>
+            <p className="text-white text-sm font-semibold">— Ali Bin Abi Thalib —</p>
           </div>
         </div>
 
