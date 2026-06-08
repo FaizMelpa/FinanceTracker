@@ -30,11 +30,6 @@ jobs:
       - name: 🏗️ Build web app
         run: npm run build
 
-      - name: 📱 Install Capacitor CLI
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
       - name: 🤖 Add Android platform
         run: |
           npm install -g @capacitor/cli
@@ -45,7 +40,7 @@ jobs:
       - name: 🔄 Sync Capacitor
         run: npx cap sync android
 
-      - name: 🐍 Setup Python for icon generation
+      - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -53,60 +48,8 @@ jobs:
       - name: 📦 Install Pillow
         run: pip install Pillow
 
-      - name: 🎨 Generate App Icons from logo
-        run: |
-          python3 << 'PYEOF'
-          import os, shutil
-          from PIL import Image
-
-          src = 'public/logo_clean.png'
-          if not os.path.exists(src):
-              print("Logo not found, skipping icon generation")
-              exit(0)
-
-          img = Image.open(src).convert('RGBA')
-
-          # Add green rounded background
-          bg_size = 1024
-          bg = Image.new('RGBA', (bg_size, bg_size), (15, 17, 23, 255))
-          # Green rounded rect background
-          from PIL import ImageDraw
-          draw = ImageDraw.Draw(bg)
-          margin = 80
-          radius = 200
-          draw.rounded_rectangle([margin, margin, bg_size-margin, bg_size-margin],
-                                   radius=radius, fill=(0, 200, 150, 255))
-          # Paste logo centered
-          logo_size = bg_size - margin * 4
-          logo = img.resize((logo_size, logo_size), Image.LANCZOS)
-          offset = (bg_size - logo_size) // 2
-          bg.paste(logo, (offset, offset), logo)
-
-          sizes = {
-              'mipmap-mdpi':    48,
-              'mipmap-hdpi':    72,
-              'mipmap-xhdpi':   96,
-              'mipmap-xxhdpi':  144,
-              'mipmap-xxxhdpi': 192,
-          }
-
-          base = 'android/app/src/main/res'
-          for folder, size in sizes.items():
-              path = os.path.join(base, folder)
-              os.makedirs(path, exist_ok=True)
-              out = bg.resize((size, size), Image.LANCZOS).convert('RGB')
-              out.save(os.path.join(path, 'ic_launcher.png'))
-              out.save(os.path.join(path, 'ic_launcher_round.png'))
-              print(f"Generated {folder}: {size}x{size}")
-
-          # Remove adaptive icon folder — it overrides everything
-          adaptive_path = os.path.join(base, 'mipmap-anydpi-v26')
-          if os.path.exists(adaptive_path):
-              shutil.rmtree(adaptive_path)
-              print("Removed mipmap-anydpi-v26 (prevents override)")
-
-          print("Icon generation complete!")
-          PYEOF
+      - name: 🎨 Generate App Icons
+        run: python3 gen_icons.py
 
       - name: 🔧 Setup Android SDK
         uses: android-actions/setup-android@v3
