@@ -86,9 +86,10 @@ function reducer(state, action) {
     }
 
     // ── Accounts ──
-    case 'ADD_ACC':    return { ...state, accounts: [...state.accounts, action.payload] }
-    case 'UPDATE_ACC': return { ...state, accounts: state.accounts.map(a => a.id === action.payload.id ? action.payload : a) }
-    case 'DELETE_ACC': return { ...state, accounts: state.accounts.filter(a => a.id !== action.payload), transactions: state.transactions.filter(t => t.accountId !== action.payload) }
+    case 'ADD_ACC':         return { ...state, accounts: [...state.accounts, action.payload] }
+    case 'UPDATE_ACC':      return { ...state, accounts: state.accounts.map(a => a.id === action.payload.id ? action.payload : a) }
+    case 'DELETE_ACC':      return { ...state, accounts: state.accounts.filter(a => a.id !== action.payload), transactions: state.transactions.filter(t => t.accountId !== action.payload) }
+    case 'REORDER_ACCOUNTS': return { ...state, accounts: action.payload }
 
     // ── Budgets ──
     case 'ADD_BUDGET':    return { ...state, budgets: [...state.budgets, action.payload] }
@@ -125,15 +126,31 @@ function reducer(state, action) {
       const { debtId, amount, date, note, accountId } = action.payload
       const debt = state.debts.find(d => d.id === debtId)
       if (!debt) return state
-      const payments = [...(debt.payments || []), { id: Date.now().toString(), amount, date, note, accountId }]
-      const paid = payments.reduce((s, p) => s + p.amount, 0)
+      const payments = [...(debt.payments || []), { id: Date.now().toString(), amount, date, note, accountId, isTambah: false }]
+      const paid = payments.filter(p => !p.isTambah).reduce((s, p) => s + p.amount, 0)
       const updatedDebt = { ...debt, payments, paid, remaining: debt.total - paid, status: paid >= debt.total ? 'lunas' : 'aktif' }
-      // meminjamkan = terima uang masuk; dipinjam = bayar uang keluar
       const accounts = state.accounts.map(a => {
         if (a.id !== accountId) return a
         return { ...a, balance: debt.direction === 'meminjamkan' ? a.balance + amount : a.balance - amount }
       })
       const tx = { id: Date.now() + '_pay', type: debt.direction === 'meminjamkan' ? 'income' : 'expense', amount, category: debt.direction === 'meminjamkan' ? 'other_inc' : 'other_exp', accountId, note: note || `Bayar hutang ${debt.name}`, date, isTransfer: true, createdAt: new Date().toISOString() }
+      return { ...state, debts: state.debts.map(d => d.id === debtId ? updatedDebt : d), accounts, transactions: [tx, ...state.transactions] }
+    }
+    case 'TAMBAH_HUTANG': {
+      // Nambah jumlah hutang (orang ngutang lagi)
+      const { debtId, amount, date, note, accountId, direction } = action.payload
+      const debt = state.debts.find(d => d.id === debtId)
+      if (!debt) return state
+      const payments = [...(debt.payments || []), { id: Date.now().toString(), amount, date, note, accountId, isTambah: true }]
+      const newTotal = debt.total + amount
+      const newRemaining = debt.remaining + amount
+      const updatedDebt = { ...debt, payments, total: newTotal, remaining: newRemaining }
+      // meminjamkan = uang keluar lagi; dipinjam = uang masuk lagi
+      const accounts = state.accounts.map(a => {
+        if (a.id !== accountId) return a
+        return { ...a, balance: direction === 'meminjamkan' ? a.balance - amount : a.balance + amount }
+      })
+      const tx = { id: Date.now() + '_tambah', type: direction === 'meminjamkan' ? 'expense' : 'income', amount, category: direction === 'meminjamkan' ? 'other_exp' : 'other_inc', accountId, note: note || `Tambah hutang ${debt.name}`, date, isTransfer: true, createdAt: new Date().toISOString() }
       return { ...state, debts: state.debts.map(d => d.id === debtId ? updatedDebt : d), accounts, transactions: [tx, ...state.transactions] }
     }
 
