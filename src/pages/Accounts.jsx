@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { useApp } from '../context/AppContext'
-import { formatRp, formatRpShort, ACCOUNT_TYPES, ACCOUNT_COLORS, getAccountType } from '../utils/constants'
+import { formatRp, ACCOUNT_TYPES, ACCOUNT_COLORS, getAccountType } from '../utils/constants'
 import { PageHeader, BottomSheet, Button, EmptyState, ConfirmDialog, showToast } from '../components/UI'
 
 const EMPTY_FORM = { name: '', type: 'cash', balance: '', color: ACCOUNT_COLORS[0] }
 
 export default function Accounts({ navigate }) {
-  const { state, dispatch, getTotalBalance } = useApp()
+  const { state, dispatch, getTotalBalance, getTotalInvestment, getDebtStats } = useApp()
   const [showForm, setShowForm] = useState(false)
   const [showAdjust, setShowAdjust] = useState(false)
   const [editAcc, setEditAcc] = useState(null)
@@ -14,26 +14,50 @@ export default function Accounts({ navigate }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [adjustAmount, setAdjustAmount] = useState('')
   const [deleteId, setDeleteId] = useState(null)
+  const [showInvInTotal, setShowInvInTotal] = useState(false)
+  const [showDebtInTotal, setShowDebtInTotal] = useState(false)
+  const [showKekayaan, setShowKekayaan] = useState(false)
+  // selectedItems: { accId: bool, investasi: bool, piutang: bool }
+  const [selectedItems, setSelectedItems] = useState({})
 
-  const total = getTotalBalance()
+  const accTotal = getTotalBalance()
+  const inv = getTotalInvestment()
+  const debt = getDebtStats()
 
-  const openAdd = () => {
-    setEditAcc(null)
-    setForm(EMPTY_FORM)
-    setShowForm(true)
+  // Total kekayaan berdasarkan toggle
+  const netWorth = accTotal
+
+  // Hitung total kekayaan panel berdasarkan pilihan user
+  const totalKekayaanPanel = (() => {
+    let total = 0
+    state.accounts.forEach(acc => {
+      if (selectedItems[acc.id]) total += acc.balance
+    })
+    if (selectedItems['investasi']) total += inv.totalNow
+    if (selectedItems['piutang']) total += debt.totalReceivable
+    return total
+  })()
+
+  const toggleItem = (key) => setSelectedItems(prev => ({ ...prev, [key]: !prev[key] }))
+  const selectAll = () => {
+    const all = {}
+    state.accounts.forEach(acc => { all[acc.id] = true })
+    all['investasi'] = true
+    all['piutang'] = true
+    setSelectedItems(all)
   }
+  const clearAll = () => setSelectedItems({})
+  const countSelected = Object.values(selectedItems).filter(Boolean).length
+    + (showInvInTotal ? inv.totalNow : 0)
+    - (showDebtInTotal ? debt.totalDebt : 0)
 
+  const openAdd = () => { setEditAcc(null); setForm(EMPTY_FORM); setShowForm(true) }
   const openEdit = (acc) => {
     setEditAcc(acc)
     setForm({ name: acc.name, type: acc.type, balance: acc.balance.toString(), color: acc.color })
     setShowForm(true)
   }
-
-  const openAdjust = (acc) => {
-    setAdjustAcc(acc)
-    setAdjustAmount(acc.balance.toString())
-    setShowAdjust(true)
-  }
+  const openAdjust = (acc) => { setAdjustAcc(acc); setAdjustAmount(acc.balance.toString()); setShowAdjust(true) }
 
   const handleSave = () => {
     if (!form.name.trim()) { showToast('Masukkan nama akun', 'error'); return }
@@ -56,7 +80,6 @@ export default function Accounts({ navigate }) {
     showToast('Saldo diperbarui!')
   }
 
-  // Move account up/down
   const moveAccount = (index, dir) => {
     const accounts = [...state.accounts]
     const swapIdx = index + dir
@@ -64,11 +87,6 @@ export default function Accounts({ navigate }) {
     ;[accounts[index], accounts[swapIdx]] = [accounts[swapIdx], accounts[index]]
     dispatch({ type: 'REORDER_ACCOUNTS', payload: accounts })
   }
-
-  const grouped = ACCOUNT_TYPES.map(t => ({
-    ...t,
-    accounts: state.accounts.filter(a => a.type === t.id)
-  })).filter(g => g.accounts.length > 0)
 
   return (
     <div className="h-full flex flex-col bg-bg">
@@ -79,32 +97,82 @@ export default function Accounts({ navigate }) {
       } />
 
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 pb-6">
-        {/* Net Worth */}
+        {/* Net Worth Card */}
         <div className="rounded-3xl p-5 mb-4 relative overflow-hidden"
           style={{ background: 'linear-gradient(135deg, #00C896 0%, #00A87E 100%)', boxShadow: '0 8px 32px rgba(0,200,150,0.3)' }}>
           <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full opacity-10" style={{ background: '#fff' }} />
           <p className="text-white/70 text-xs mb-1">Total Kekayaan Bersih</p>
-          <p className="text-white font-black text-4xl mb-1">{formatRp(total)}</p>
-          <p className="text-white/70 text-xs">{state.accounts.length} akun terhubung</p>
+          <p className="text-white font-black text-3xl mb-1">{formatRp(netWorth)}</p>
+          <p className="text-white/70 text-xs">{state.accounts.length} akun</p>
         </div>
 
-        {/* Distribution */}
-        {grouped.length > 0 && (
+        {/* Investasi & Hutang — dengan toggle masuk/keluar dari total */}
+        <div className="bg-card rounded-2xl border border-border p-4 mb-4">
+          <p className="text-white font-bold text-sm mb-3">🔧 Komponen Total Kekayaan</p>
+          <p className="text-text-muted text-xs mb-3">Toggle untuk ikutkan / keluarkan dari total kekayaan di atas</p>
+
+          {/* Investasi */}
+          <div className="flex items-center justify-between py-3 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(79,195,247,0.15)' }}>
+                <span style={{ fontSize: 18 }}>💹</span>
+              </div>
+              <div>
+                <p className="text-white text-sm font-semibold">Total Investasi</p>
+                <p className="font-bold text-sm" style={{ color: '#4FC3F7' }}>{formatRp(inv.totalNow)}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <p className="text-text-muted text-xs">{showInvInTotal ? 'Dihitung' : 'Disembunyikan'}</p>
+              <button onClick={() => setShowInvInTotal(v => !v)}
+                className="relative w-12 h-6 rounded-full transition-colors"
+                style={{ background: showInvInTotal ? '#00C896' : '#2A2D3E', border: 'none', cursor: 'pointer' }}>
+                <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform"
+                  style={{ transform: showInvInTotal ? 'translateX(26px)' : 'translateX(2px)' }} />
+              </button>
+            </div>
+          </div>
+
+          {/* Hutang */}
+          <div className="flex items-center justify-between py-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,107,107,0.15)' }}>
+                <span style={{ fontSize: 18 }}>🤝</span>
+              </div>
+              <div>
+                <p className="text-white text-sm font-semibold">Total Hutang</p>
+                <p className="font-bold text-sm" style={{ color: '#FF6B6B' }}>{formatRp(debt.totalDebt)}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <p className="text-text-muted text-xs">{showDebtInTotal ? 'Dikurangi' : 'Disembunyikan'}</p>
+              <button onClick={() => setShowDebtInTotal(v => !v)}
+                className="relative w-12 h-6 rounded-full transition-colors"
+                style={{ background: showDebtInTotal ? '#FF6B6B' : '#2A2D3E', border: 'none', cursor: 'pointer' }}>
+                <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform"
+                  style={{ transform: showDebtInTotal ? 'translateX(26px)' : 'translateX(2px)' }} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Distribusi Akun */}
+        {state.accounts.length > 0 && (
           <div className="bg-card rounded-2xl border border-border p-4 mb-4">
-            <p className="text-white font-bold text-sm mb-3">Distribusi per Tipe</p>
-            {grouped.map(g => {
-              const groupTotal = g.accounts.reduce((s, a) => s + a.balance, 0)
-              const pct = total > 0 ? (groupTotal / total) * 100 : 0
+            <p className="text-white font-bold text-sm mb-3">Distribusi Akun</p>
+            {ACCOUNT_TYPES.filter(t => state.accounts.some(a => a.type === t.id)).map(t => {
+              const groupTotal = state.accounts.filter(a => a.type === t.id).reduce((s, a) => s + a.balance, 0)
+              const pct = accTotal > 0 ? (groupTotal / accTotal) * 100 : 0
               return (
-                <div key={g.id} className="flex items-center gap-3 mb-3">
-                  <span style={{ fontSize: 20 }}>{g.icon}</span>
+                <div key={t.id} className="flex items-center gap-3 mb-3 last:mb-0">
+                  <span style={{ fontSize: 18 }}>{t.icon}</span>
                   <div className="flex-1">
                     <div className="flex justify-between mb-1">
-                      <span className="text-text-sec text-xs font-semibold">{g.label}</span>
-                      <span className="font-bold text-xs" style={{ color: g.color }}>{formatRpShort(groupTotal)}</span>
+                      <span className="text-text-sec text-xs font-semibold">{t.label}</span>
+                      <span className="font-bold text-xs" style={{ color: t.color }}>{formatRp(groupTotal)}</span>
                     </div>
                     <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#2A2D3E' }}>
-                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: g.color }} />
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: t.color }} />
                     </div>
                   </div>
                 </div>
@@ -118,12 +186,11 @@ export default function Accounts({ navigate }) {
           <EmptyState emoji="🏦" title="Belum ada akun" subtitle="Tambahkan akun bank, e-wallet, atau tunai" action="Tambah Akun" onAction={openAdd} />
         ) : (
           <>
-            <p className="text-text-muted text-xs mb-2 px-1">Tap untuk edit · Tahan ↑↓ untuk atur urutan</p>
+            <p className="text-text-muted text-xs mb-2 px-1">Tap untuk edit · ▲▼ untuk atur urutan</p>
             {state.accounts.map((acc, index) => {
               const typeObj = getAccountType(acc.type)
               return (
                 <div key={acc.id} className="flex items-center gap-2 mb-3">
-                  {/* Reorder buttons */}
                   <div className="flex flex-col gap-1">
                     <button onClick={() => moveAccount(index, -1)} disabled={index === 0}
                       className="w-7 h-7 rounded-lg flex items-center justify-center text-xs"
@@ -132,8 +199,6 @@ export default function Accounts({ navigate }) {
                       className="w-7 h-7 rounded-lg flex items-center justify-center text-xs"
                       style={{ background: index === state.accounts.length - 1 ? '#1A1D27' : '#22263A', color: index === state.accounts.length - 1 ? '#3A3D4E' : '#A0A8C0', border: 'none', cursor: index === state.accounts.length - 1 ? 'default' : 'pointer' }}>▼</button>
                   </div>
-
-                  {/* Card */}
                   <div className="flex-1 flex items-center gap-3 bg-card rounded-2xl border border-border p-4 card-press" onClick={() => openEdit(acc)}>
                     <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: acc.color + '20' }}>
                       <span style={{ fontSize: 24 }}>{acc.icon}</span>
@@ -151,7 +216,6 @@ export default function Accounts({ navigate }) {
                           ✏️ Edit Saldo
                         </button>
                         <button onClick={e => { e.stopPropagation(); setDeleteId(acc.id) }}
-                          className="text-text-muted text-xs card-press"
                           style={{ background: 'none', border: 'none', cursor: 'pointer' }}>🗑️</button>
                       </div>
                     </div>
@@ -163,13 +227,12 @@ export default function Accounts({ navigate }) {
         )}
       </div>
 
-      {/* Edit Akun Form */}
+      {/* Edit Akun */}
       <BottomSheet show={showForm} onClose={() => setShowForm(false)} title={editAcc ? 'Edit Akun' : 'Tambah Akun'}>
         <div className="p-4 space-y-4">
           <div>
             <p className="text-text-sec text-xs font-semibold mb-2">Nama Akun</p>
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              placeholder="Contoh: BCA, GoPay, Dompet..."
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="BCA, GoPay, Dompet..."
               className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
           </div>
           <div>
@@ -190,8 +253,7 @@ export default function Accounts({ navigate }) {
               <p className="text-text-sec text-xs font-semibold mb-2">Saldo Awal</p>
               <input type="text" inputMode="numeric"
                 value={form.balance ? new Intl.NumberFormat('id-ID').format(parseInt(form.balance.replace(/\D/g,'') || 0)) : ''}
-                onChange={e => setForm(f => ({ ...f, balance: e.target.value.replace(/\D/g,'') }))}
-                placeholder="0"
+                onChange={e => setForm(f => ({ ...f, balance: e.target.value.replace(/\D/g,'') }))} placeholder="0"
                 className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
             </div>
           )}
@@ -209,19 +271,111 @@ export default function Accounts({ navigate }) {
         </div>
       </BottomSheet>
 
-      {/* Edit Saldo Form */}
+      {/* Edit Saldo */}
       <BottomSheet show={showAdjust} onClose={() => setShowAdjust(false)} title={`Edit Saldo — ${adjustAcc?.name}`}>
         <div className="p-4 space-y-4">
-          <p className="text-text-muted text-xs">Masukkan saldo terbaru untuk akun <span className="text-white font-semibold">{adjustAcc?.name}</span>. Ini tidak akan membuat transaksi baru.</p>
-          <div>
-            <p className="text-text-sec text-xs font-semibold mb-2">Saldo Baru</p>
-            <input type="text" inputMode="numeric"
-              value={adjustAmount ? new Intl.NumberFormat('id-ID').format(parseInt(adjustAmount.replace(/\D/g,'') || 0)) : ''}
-              onChange={e => setAdjustAmount(e.target.value.replace(/\D/g,''))}
-              placeholder="0"
-              className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
-          </div>
+          <p className="text-text-muted text-xs">Masukkan saldo terbaru. Tidak akan membuat transaksi baru.</p>
+          <input type="text" inputMode="numeric"
+            value={adjustAmount ? new Intl.NumberFormat('id-ID').format(parseInt(adjustAmount.replace(/\D/g,'') || 0)) : ''}
+            onChange={e => setAdjustAmount(e.target.value.replace(/\D/g,''))} placeholder="0"
+            className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
           <Button onClick={handleAdjustBalance}>Simpan Saldo</Button>
+        </div>
+      </BottomSheet>
+
+      {/* FAB Kekayaan Keseluruhan */}
+      <button
+        onClick={() => setShowKekayaan(true)}
+        className="fixed card-press"
+        style={{
+          bottom: 90, right: 20, zIndex: 40,
+          width: 56, height: 56, borderRadius: 28,
+          background: 'linear-gradient(135deg, #00C896, #00A87E)',
+          boxShadow: '0 4px 20px rgba(0,200,150,0.5)',
+          border: 'none', cursor: 'pointer', fontSize: 26,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+        💸
+      </button>
+
+      {/* Panel Total Kekayaan Keseluruhan */}
+      <BottomSheet show={showKekayaan} onClose={() => setShowKekayaan(false)} title="💸 Total Kekayaan">
+        <div className="p-4">
+          {/* Total hasil pilihan */}
+          <div className="rounded-2xl p-4 mb-4 text-center" style={{ background: 'linear-gradient(135deg, #1E2235, #22263A)', border: '1px solid #2A2D3E' }}>
+            <p className="text-text-muted text-xs mb-1">Total Terpilih ({countSelected} item)</p>
+            <p className="text-white font-black text-3xl">{formatRp(totalKekayaanPanel)}</p>
+          </div>
+
+          {/* Quick select */}
+          <div className="flex gap-2 mb-4">
+            <button onClick={selectAll} className="flex-1 py-2 rounded-xl text-xs font-bold card-press"
+              style={{ background: 'rgba(0,200,150,0.15)', color: '#00C896', border: '1px solid rgba(0,200,150,0.3)', cursor: 'pointer' }}>
+              ✅ Pilih Semua
+            </button>
+            <button onClick={clearAll} className="flex-1 py-2 rounded-xl text-xs font-bold card-press"
+              style={{ background: 'rgba(255,107,107,0.15)', color: '#FF6B6B', border: '1px solid rgba(255,107,107,0.3)', cursor: 'pointer' }}>
+              ✕ Kosongkan
+            </button>
+          </div>
+
+          <div className="space-y-2 overflow-y-auto" style={{ maxHeight: 340 }}>
+            {/* Semua Akun */}
+            <p className="text-text-muted text-xs font-semibold px-1 pt-1">🏦 Akun</p>
+            {state.accounts.map(acc => (
+              <button key={acc.id} onClick={() => toggleItem(acc.id)}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 card-press"
+                style={{ borderColor: selectedItems[acc.id] ? acc.color : '#2A2D3E', background: selectedItems[acc.id] ? acc.color + '15' : '#1E2235', cursor: 'pointer' }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: acc.color + '20' }}>
+                  <span style={{ fontSize: 18 }}>{acc.icon}</span>
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-white text-sm font-semibold">{acc.name}</p>
+                  <p className="font-bold text-xs" style={{ color: acc.color }}>{formatRp(acc.balance)}</p>
+                </div>
+                <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                  style={{ borderColor: selectedItems[acc.id] ? acc.color : '#3A3D4E', background: selectedItems[acc.id] ? acc.color : 'transparent' }}>
+                  {selectedItems[acc.id] && <span style={{ color: '#fff', fontSize: 12 }}>✓</span>}
+                </div>
+              </button>
+            ))}
+
+            {/* Investasi */}
+            <p className="text-text-muted text-xs font-semibold px-1 pt-2">💹 Investasi</p>
+            <button onClick={() => toggleItem('investasi')}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 card-press"
+              style={{ borderColor: selectedItems['investasi'] ? '#4FC3F7' : '#2A2D3E', background: selectedItems['investasi'] ? 'rgba(79,195,247,0.1)' : '#1E2235', cursor: 'pointer' }}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(79,195,247,0.15)' }}>
+                <span style={{ fontSize: 18 }}>📈</span>
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-white text-sm font-semibold">Total Porto Investasi</p>
+                <p className="font-bold text-xs" style={{ color: '#4FC3F7' }}>{formatRp(inv.totalNow)}</p>
+              </div>
+              <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                style={{ borderColor: selectedItems['investasi'] ? '#4FC3F7' : '#3A3D4E', background: selectedItems['investasi'] ? '#4FC3F7' : 'transparent' }}>
+                {selectedItems['investasi'] && <span style={{ color: '#fff', fontSize: 12 }}>✓</span>}
+              </div>
+            </button>
+
+            {/* Piutang */}
+            <p className="text-text-muted text-xs font-semibold px-1 pt-2">🤝 Piutang</p>
+            <button onClick={() => toggleItem('piutang')}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 card-press"
+              style={{ borderColor: selectedItems['piutang'] ? '#00C896' : '#2A2D3E', background: selectedItems['piutang'] ? 'rgba(0,200,150,0.1)' : '#1E2235', cursor: 'pointer' }}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(0,200,150,0.15)' }}>
+                <span style={{ fontSize: 18 }}>💰</span>
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-white text-sm font-semibold">Total Piutang</p>
+                <p className="font-bold text-xs" style={{ color: '#00C896' }}>{formatRp(debt.totalReceivable)}</p>
+              </div>
+              <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                style={{ borderColor: selectedItems['piutang'] ? '#00C896' : '#3A3D4E', background: selectedItems['piutang'] ? '#00C896' : 'transparent' }}>
+                {selectedItems['piutang'] && <span style={{ color: '#fff', fontSize: 12 }}>✓</span>}
+              </div>
+            </button>
+          </div>
         </div>
       </BottomSheet>
 
