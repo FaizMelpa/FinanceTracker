@@ -1,0 +1,291 @@
+import React, { useState } from 'react'
+import { useApp } from '../context/AppContext'
+import { formatRp, formatDate, INVESTMENT_TYPES, getInvestmentType, ACCOUNT_COLORS } from '../utils/constants'
+import { PageHeader, BottomSheet, Button, EmptyState, ConfirmDialog, showToast } from '../components/UI'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
+
+const EMPTY_INV = { name: '', type: 'stock', modal: '', note: '', startDate: new Date().toISOString().slice(0, 10), accountId: '', color: '' }
+
+export default function Investments({ navigate }) {
+  const { state, dispatch, getTotalInvestment } = useApp()
+  const [showForm, setShowForm] = useState(false)
+  const [showHistory, setShowHistory] = useState(null)
+  const [form, setForm] = useState(EMPTY_INV)
+  const [histForm, setHistForm] = useState({ type: 'setor', amount: '', note: '', date: new Date().toISOString().slice(0, 10), accountId: '' })
+  const [deleteId, setDeleteId] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
+
+  const portfolio = getTotalInvestment()
+
+  // Gunakan warna custom jika ada, fallback ke warna tipe
+  const pieData = state.investments.map(inv => {
+    const t = getInvestmentType(inv.type)
+    return { name: inv.name, value: inv.currentValue || 0, color: inv.color || t.color }
+  }).filter(d => d.value > 0)
+
+  const handleSave = () => {
+    if (!form.name || !form.modal) { showToast('Lengkapi data', 'error'); return }
+    if (!form.accountId) { showToast('Pilih akun sumber dana', 'error'); return }
+    const modal = parseInt(form.modal.replace(/\D/g, ''))
+    const t = getInvestmentType(form.type)
+    dispatch({ type: 'ADD_INV_WITH_TRANSFER', payload: {
+      inv: {
+        id: Date.now().toString(), name: form.name, type: form.type,
+        modal, currentValue: modal, note: form.note, startDate: form.startDate,
+        color: form.color || t.color,  // simpan warna custom
+        createdAt: new Date().toISOString()
+      },
+      accountId: form.accountId, amount: modal, date: form.startDate,
+    }})
+    setForm(EMPTY_INV)
+    setShowForm(false)
+    showToast('Investasi ditambahkan!')
+  }
+
+  const handleAddHistory = () => {
+    if (!histForm.amount) { showToast('Masukkan jumlah', 'error'); return }
+    if (!histForm.accountId) { showToast('Pilih akun', 'error'); return }
+    const amount = parseInt(histForm.amount.replace(/\D/g, ''))
+    dispatch({ type: 'INV_HISTORY_WITH_TRANSFER', payload: {
+      inv: showHistory, histType: histForm.type, amount,
+      accountId: histForm.accountId, note: histForm.note, date: histForm.date,
+    }})
+    setHistForm({ type: 'setor', amount: '', note: '', date: new Date().toISOString().slice(0, 10), accountId: '' })
+    setShowHistory(null)
+    showToast('Riwayat dicatat!')
+  }
+
+  const AccountPicker = ({ value, onChange, label }) => (
+    <div>
+      <p className="text-text-sec text-xs font-semibold mb-2">{label}</p>
+      <div className="space-y-2">
+        {state.accounts.map(acc => (
+          <button key={acc.id} onClick={() => onChange(acc.id)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 card-press text-left"
+            style={{ borderColor: value === acc.id ? '#00C896' : '#2A2D3E', background: value === acc.id ? 'rgba(0,200,150,0.1)' : '#1E2235', cursor: 'pointer' }}>
+            <span style={{ fontSize: 20 }}>{acc.icon}</span>
+            <div className="flex-1">
+              <p className="text-white text-sm font-semibold">{acc.name}</p>
+              <p className="text-text-muted text-xs">{formatRp(acc.balance)}</p>
+            </div>
+            {value === acc.id && <span style={{ color: '#00C896' }}>✓</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="h-full flex flex-col bg-bg">
+      <PageHeader title="Investasi" onBack={() => navigate('dashboard')} right={
+        <button onClick={() => setShowForm(true)}
+          className="w-9 h-9 rounded-full flex items-center justify-center card-press"
+          style={{ background: 'rgba(0,200,150,0.15)', border: 'none', color: '#00C896', fontSize: 22, cursor: 'pointer' }}>+</button>
+      } />
+
+      <div className="flex-1 overflow-y-auto scrollbar-none px-4 pb-6">
+        {/* Portfolio Summary — angka full */}
+        <div className="rounded-3xl p-5 mb-4"
+          style={{ background: 'linear-gradient(135deg, #1E2235 0%, #22263A 100%)', border: '1px solid #2A2D3E' }}>
+          <p className="text-text-muted text-xs mb-1">Total Portofolio</p>
+          <p className="text-white font-black text-2xl mb-3">{formatRp(portfolio.totalNow)}</p>
+          <div className="flex gap-6">
+            <div>
+              <p className="text-text-muted text-xs">Modal</p>
+              <p className="text-white font-bold text-sm">{formatRp(portfolio.totalModal)}</p>
+            </div>
+            <div>
+              <p className="text-text-muted text-xs">Nilai Sekarang</p>
+              <p className="text-white font-bold text-sm">{formatRp(portfolio.totalNow)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Pie Chart alokasi aset */}
+        {pieData.length > 0 && (
+          <div className="bg-card rounded-2xl border border-border p-4 mb-4">
+            <p className="text-white font-bold text-sm mb-3">Alokasi Aset</p>
+            <div className="flex items-center">
+              <ResponsiveContainer width={130} height={130}>
+                <PieChart>
+                  <Pie data={pieData} cx={60} cy={60} innerRadius={32} outerRadius={58} dataKey="value" paddingAngle={3}>
+                    {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip
+                    formatter={v => formatRp(v)}
+                    contentStyle={{ background: '#22263A', border: '1px solid #2A2D3E', borderRadius: 10, color: '#fff', fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex-1 pl-2">
+                {pieData.map((d, i) => (
+                  <div key={i} className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: d.color }} />
+                      <span className="text-text-sec text-xs truncate" style={{ maxWidth: 90 }}>{d.name}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-bold" style={{ color: d.color }}>
+                        {portfolio.totalNow > 0 ? Math.round((d.value / portfolio.totalNow) * 100) : 0}%
+                      </p>
+                      <p className="text-text-muted" style={{ fontSize: 9 }}>{formatRp(d.value)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Investment list */}
+        {state.investments.length === 0 ? (
+          <EmptyState emoji="📈" title="Belum ada investasi" subtitle="Mulai catat portofolio investasi lo" action="Tambah Investasi" onAction={() => setShowForm(true)} />
+        ) : (
+          state.investments.map(inv => {
+            const t = getInvestmentType(inv.type)
+            const invColor = inv.color || t.color
+            const isExpanded = expandedId === inv.id
+            const history = state.investmentHistory.filter(h => h.investmentId === inv.id)
+            const acc = state.accounts.find(a => a.id === inv.accountId)
+            return (
+              <div key={inv.id} className="bg-card rounded-2xl border border-border p-4 mb-3">
+                <div className="flex items-center justify-between mb-3" onClick={() => setExpandedId(isExpanded ? null : inv.id)} style={{ cursor: 'pointer' }}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: invColor + '20' }}>
+                      <span style={{ fontSize: 22 }}>{t.icon}</span>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-white font-bold">{inv.name}</p>
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: invColor }} />
+                      </div>
+                      <p className="text-text-muted text-xs">{t.label}{acc ? ` · ${acc.icon}${acc.name}` : ''}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-white font-black text-sm">{formatRp(inv.currentValue)}</p>
+                    <p className="text-text-muted text-xs">Modal: {formatRp(inv.modal)}</p>
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="mt-3">
+                    {history.length > 0 && (
+                      <div className="p-3 rounded-xl mb-3" style={{ background: '#0F1117' }}>
+                        <p className="text-text-sec text-xs font-semibold mb-2">Riwayat</p>
+                        {history.slice(0, 5).map(h => {
+                          const hAcc = state.accounts.find(a => a.id === h.accountId)
+                          return (
+                            <div key={h.id} className="flex justify-between py-1">
+                              <span className="text-text-muted text-xs">
+                                {formatDate(h.date)} · {h.type === 'setor' ? '📥' : '📤'} {h.note || h.type}{hAcc ? ` · ${hAcc.icon}${hAcc.name}` : ''}
+                              </span>
+                              <span className="text-xs font-bold" style={{ color: h.type === 'setor' ? '#00C896' : '#FF6B6B' }}>
+                                {h.type === 'setor' ? '+' : '-'}{formatRp(h.amount)}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button onClick={() => { setShowHistory(inv); setHistForm(f => ({ ...f, accountId: inv.accountId || '' })) }}
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold card-press"
+                        style={{ background: 'rgba(0,200,150,0.15)', color: '#00C896', border: '1px solid rgba(0,200,150,0.2)', cursor: 'pointer' }}>
+                        💰 Setor / Tarik
+                      </button>
+                      <button onClick={() => setDeleteId(inv.id)}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center card-press"
+                        style={{ background: 'rgba(255,107,107,0.15)', border: '1px solid rgba(255,107,107,0.2)', cursor: 'pointer', fontSize: 16 }}>🗑️</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* Add Investment */}
+      <BottomSheet show={showForm} onClose={() => setShowForm(false)} title="Tambah Investasi">
+        <div className="p-4 space-y-4">
+          <div>
+            <p className="text-text-sec text-xs font-semibold mb-2">Nama</p>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Contoh: BBCA, Bitcoin, RD X..."
+              className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+          </div>
+          <div>
+            <p className="text-text-sec text-xs font-semibold mb-2">Tipe</p>
+            <div className="grid grid-cols-4 gap-2">
+              {INVESTMENT_TYPES.map(t => (
+                <button key={t.id} onClick={() => setForm(f => ({ ...f, type: t.id, color: f.color || t.color }))}
+                  className="flex flex-col items-center gap-1 py-2.5 rounded-2xl border-2 card-press"
+                  style={{ borderColor: form.type === t.id ? (form.color || t.color) : '#2A2D3E', background: form.type === t.id ? (form.color || t.color) + '20' : '#1E2235', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 18 }}>{t.icon}</span>
+                  <span style={{ color: form.type === t.id ? (form.color || t.color) : '#5A6080', fontSize: 8, fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Pilih warna untuk statistik */}
+          <div>
+            <p className="text-text-sec text-xs font-semibold mb-2">🎨 Warna di Grafik Alokasi</p>
+            <div className="flex gap-2 flex-wrap">
+              {[...ACCOUNT_COLORS,
+                '#4FC3F7','#A5D6A7','#FFD54F','#FFCC02','#80DEEA','#CE93D8','#FFAB91',
+                '#FF6B6B','#00C896','#B0BEC5','#80CBC4','#B39DDB','#F48FB1','#FFCA28'
+              ].filter((c,i,a) => a.indexOf(c)===i).map(c => (
+                <button key={c} onClick={() => setForm(f => ({ ...f, color: c }))}
+                  className="w-7 h-7 rounded-full card-press"
+                  style={{ background: c, border: form.color === c ? '3px solid #fff' : '3px solid transparent', cursor: 'pointer' }} />
+              ))}
+            </div>
+          </div>
+          <AccountPicker value={form.accountId} onChange={id => setForm(f => ({ ...f, accountId: id }))} label="🏦 Transfer dari Akun (dana keluar)" />
+          <div>
+            <p className="text-text-sec text-xs font-semibold mb-2">Modal Awal</p>
+            <input type="text" inputMode="numeric"
+              value={form.modal ? new Intl.NumberFormat('id-ID').format(parseInt(form.modal.replace(/\D/g,'') || 0)) : ''}
+              onChange={e => setForm(f => ({ ...f, modal: e.target.value.replace(/\D/g,'') }))} placeholder="0"
+              className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+          </div>
+          <div>
+            <p className="text-text-sec text-xs font-semibold mb-2">Tanggal Mulai</p>
+            <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))}
+              className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none" style={{ colorScheme: 'dark' }} />
+          </div>
+          <Button onClick={handleSave}>Simpan</Button>
+        </div>
+      </BottomSheet>
+
+      {/* Setor/Tarik */}
+      <BottomSheet show={!!showHistory} onClose={() => setShowHistory(null)} title="Setor / Tarik">
+        <div className="p-4 space-y-4">
+          <div className="flex gap-2">
+            {['setor','tarik'].map(t => (
+              <button key={t} onClick={() => setHistForm(f => ({ ...f, type: t }))}
+                className="flex-1 py-2.5 rounded-2xl border-2 card-press text-sm font-bold"
+                style={{ borderColor: histForm.type === t ? '#00C896' : '#2A2D3E', background: histForm.type === t ? 'rgba(0,200,150,0.15)' : 'transparent', color: histForm.type === t ? '#00C896' : '#A0A8C0', cursor: 'pointer' }}>
+                {t === 'setor' ? '📥 Setor' : '📤 Tarik'}
+              </button>
+            ))}
+          </div>
+          <AccountPicker value={histForm.accountId} onChange={id => setHistForm(f => ({ ...f, accountId: id }))}
+            label={histForm.type === 'setor' ? '🏦 Dari Akun (dana keluar)' : '🏦 Ke Akun (dana masuk)'} />
+          <input type="text" inputMode="numeric"
+            value={histForm.amount ? new Intl.NumberFormat('id-ID').format(parseInt(histForm.amount.replace(/\D/g,'') || 0)) : ''}
+            onChange={e => setHistForm(f => ({ ...f, amount: e.target.value.replace(/\D/g,'') }))} placeholder="Jumlah"
+            className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+          <input type="date" value={histForm.date} onChange={e => setHistForm(f => ({ ...f, date: e.target.value }))}
+            className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none" style={{ colorScheme: 'dark' }} />
+          <input value={histForm.note} onChange={e => setHistForm(f => ({ ...f, note: e.target.value }))} placeholder="Catatan (opsional)"
+            className="w-full bg-elevated border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none placeholder-text-muted" />
+          <Button onClick={handleAddHistory}>Simpan</Button>
+        </div>
+      </BottomSheet>
+
+      <ConfirmDialog show={!!deleteId} title="Hapus Investasi" message="Riwayat investasi ini juga akan dihapus. Yakin?" danger
+        onConfirm={() => { dispatch({ type: 'DELETE_INV', payload: deleteId }); setDeleteId(null); showToast('Dihapus') }}
+        onCancel={() => setDeleteId(null)} />
+    </div>
+  )
+}
