@@ -79,10 +79,10 @@ export const ACCOUNT_TYPES = [
 
 // ── Investment Types ──────────────────────────────────
 export const INVESTMENT_TYPES = [
-  { id: 'stock',      label: 'Saham',        icon: '📈', color: '#4FC3F7' },
-  { id: 'rd_pasar',   label: 'RD Pasar Uang', icon: '💵', color: '#A5D6A7' },
-  { id: 'rd_saham',   label: 'RD Saham',      icon: '📊', color: '#80CBC4' },
-  { id: 'rd_obligasi',label: 'RD Obligasi',   icon: '📄', color: '#B39DDB' },
+  { id: 'stock',      label: 'Saham',        icon: '📈', color: '#FF5252' },
+  { id: 'rd_pasar',   label: 'RD Pasar Uang', icon: '💵', color: '#00C896' },
+  { id: 'rd_saham',   label: 'RD Saham',      icon: '📊', color: '#CE93D8' },
+  { id: 'rd_obligasi',label: 'RD Obligasi',   icon: '📄', color: '#FFD54F' },
   { id: 'crypto',     label: 'Crypto',       icon: '🪙', color: '#FFD54F' },
   { id: 'gold',       label: 'Emas',         icon: '🥇', color: '#FFCC02' },
   { id: 'deposito',   label: 'Deposito',     icon: '🏦', color: '#80DEEA' },
