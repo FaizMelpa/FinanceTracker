@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { EXPENSE_CATS, INCOME_CATS, formatRp } from '../utils/constants'
 import { Button, showToast } from '../components/UI'
@@ -13,22 +13,12 @@ export default function AddTransaction({ navigate, params = {} }) {
   const [toAccountId, setToAccountId] = useState(state.accounts[1]?.id || '')
   const [note, setNote] = useState('')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 16))
-  const [struk, setStruk] = useState(null) // base64 image
-  const fileRef = useRef()
 
   const cats = type === 'income' ? INCOME_CATS : EXPENSE_CATS
   const selectedAcc = state.accounts.find(a => a.id === accountId)
 
   const handleAmountChange = (val) => setAmount(val.replace(/\D/g, ''))
   const displayAmount = amount ? new Intl.NumberFormat('id-ID').format(parseInt(amount)) : ''
-
-  const handleStruk = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => setStruk(ev.target.result)
-    reader.readAsDataURL(file)
-  }
 
   const handleSave = () => {
     if (!amount || parseInt(amount) === 0) { showToast('Masukkan jumlah', 'error'); return }
@@ -47,7 +37,7 @@ export default function AddTransaction({ navigate, params = {} }) {
     } else {
       dispatch({
         type: 'ADD_TX',
-        payload: { id: Date.now().toString(), type, amount: parsedAmount, category, accountId, note, date: txDate, struk: struk || null, createdAt: new Date().toISOString() }
+        payload: { id: Date.now().toString(), type, amount: parsedAmount, category, accountId, note, date: txDate, createdAt: new Date().toISOString() }
       })
       showToast(type === 'income' ? 'Pemasukan ditambahkan!' : 'Pengeluaran dicatat!')
     }
@@ -67,9 +57,9 @@ export default function AddTransaction({ navigate, params = {} }) {
         {/* Type Selector */}
         <div className="flex gap-2 mb-5">
           {[
-            { key: 'expense', label: '📤 Pengeluaran', color: '#FF6B6B' },
-            { key: 'income',  label: '📥 Pemasukan',   color: '#00C896' },
-            { key: 'transfer',label: '🔄 Transfer',    color: '#FFB347' },
+            { key: 'expense',  label: '📤 Pengeluaran', color: '#FF6B6B' },
+            { key: 'income',   label: '📥 Pemasukan',   color: '#00C896' },
+            { key: 'transfer', label: '🔄 Transfer',    color: '#FFB347' },
           ].map(t => {
             const active = isTransfer ? t.key === 'transfer' : (!isTransfer && t.key === type)
             return (
@@ -90,7 +80,8 @@ export default function AddTransaction({ navigate, params = {} }) {
           <p className="text-text-muted text-xs font-semibold mb-2">Jumlah</p>
           <div className="flex items-center gap-2">
             <span className="text-text-sec font-black text-2xl">Rp</span>
-            <input type="text" inputMode="numeric" value={displayAmount} onChange={e => handleAmountChange(e.target.value.replace(/\D/g, ''))}
+            <input type="text" inputMode="numeric" value={displayAmount}
+              onChange={e => handleAmountChange(e.target.value.replace(/\D/g, ''))}
               placeholder="0" className="flex-1 bg-transparent text-white font-black outline-none placeholder-text-muted"
               style={{ fontSize: 38, minWidth: 0 }} autoFocus />
           </div>
@@ -159,29 +150,6 @@ export default function AddTransaction({ navigate, params = {} }) {
             className="w-full bg-surface border border-border rounded-2xl px-4 py-3 text-white text-sm outline-none"
             style={{ colorScheme: 'dark' }} />
         </div>
-
-        {/* Foto Struk */}
-        {!isTransfer && (
-          <div className="mb-6">
-            <p className="text-text-sec text-xs font-semibold mb-2">📷 Foto Struk</p>
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleStruk} className="hidden" />
-            {struk ? (
-              <div className="relative">
-                <img src={struk} alt="struk" className="w-full rounded-2xl object-cover" style={{ maxHeight: 200 }} />
-                <button onClick={() => setStruk(null)}
-                  className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center card-press"
-                  style={{ border: 'none', cursor: 'pointer', color: '#fff', fontSize: 16 }}>✕</button>
-              </div>
-            ) : (
-              <button onClick={() => fileRef.current?.click()}
-                className="w-full h-24 rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 card-press"
-                style={{ background: 'transparent', cursor: 'pointer' }}>
-                <span style={{ fontSize: 28 }}>📷</span>
-                <span style={{ color: '#5A6080', fontSize: 12, fontWeight: 600 }}>Tap untuk foto struk</span>
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Balance info */}
         {selectedAcc && (
