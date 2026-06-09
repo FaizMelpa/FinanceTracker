@@ -1,16 +1,16 @@
 import React, { useRef, useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { PageHeader, Button, ConfirmDialog, showToast } from '../components/UI'
-import { formatDate, MONEFY_CAT_MAP } from '../utils/constants'
+import { MONEFY_CAT_MAP } from '../utils/constants'
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 
-const FOLDER = 'FinanceTracker'
-
-// Cek apakah jalan di Capacitor native (APK) atau browser biasa
 const isNative = () => {
-  try {
-    return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())
-  } catch { return false }
+  try { return !!(window.Capacitor?.isNativePlatform?.()) } catch { return false }
+}
+
+const getStamp = () => {
+  const n = new Date()
+  return `${n.getFullYear()}${String(n.getMonth()+1).padStart(2,'0')}${String(n.getDate()).padStart(2,'0')}_${String(n.getHours()).padStart(2,'0')}${String(n.getMinutes()).padStart(2,'0')}`
 }
 
 export default function BackupRestore({ navigate }) {
@@ -23,14 +23,70 @@ export default function BackupRestore({ navigate }) {
   const [pendingImport, setPendingImport] = useState(null)
   const [importing, setImporting] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [lastBackupPath, setLastBackupPath] = useState('')
 
-  const getStamp = () => {
-    const now = new Date()
-    return `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`
+  // ── BACKUP ────────────────────────────────────────────
+  const handleBackup = async () => {
+    setLoading(true)
+    try {
+      const filename = `FinanceTracker_Backup_${getStamp()}.json`
+      const content = JSON.stringify({
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        data: state,
+      }, null, 2)
+
+      if (isNative()) {
+        // Tulis langsung ke Download/FinanceTracker/
+        try {
+          // Buat folder dulu
+          try {
+            await Filesystem.mkdir({
+              path: 'Download/FinanceTracker',
+              directory: Directory.ExternalStorage,
+              recursive: true,
+            })
+          } catch (_) { /* folder sudah ada */ }
+
+          await Filesystem.writeFile({
+            path: `Download/FinanceTracker/${filename}`,
+            data: content,
+            directory: Directory.ExternalStorage,
+            encoding: Encoding.UTF8,
+          })
+
+          const path = `/storage/emulated/0/Download/FinanceTracker/${filename}`
+          setLastBackupPath(path)
+          showToast(`✅ Tersimpan!\n${path}`)
+        } catch (e) {
+          console.error('Filesystem write error:', e)
+          // Fallback ke Documents jika ExternalStorage gagal
+          try {
+            await Filesystem.writeFile({
+              path: `FinanceTracker/${filename}`,
+              data: content,
+              directory: Directory.Documents,
+              encoding: Encoding.UTF8,
+              recursive: true,
+            })
+            showToast('✅ Tersimpan di folder Documents!')
+          } catch (e2) {
+            // Last resort: browser download
+            _browserDownload(content, filename)
+            showToast('Backup didownload!')
+          }
+        }
+      } else {
+        _browserDownload(content, filename)
+        showToast('Backup didownload! Cek folder Downloads.')
+      }
+    } catch (e) {
+      showToast('Gagal backup: ' + e.message, 'error')
+    }
+    setLoading(false)
   }
 
-  // ── Download biasa (browser fallback) ────────────────
-  const browserDownload = (content, filename) => {
+  const _browserDownload = (content, filename) => {
     const blob = new Blob([content], { type: 'application/json;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -40,62 +96,6 @@ export default function BackupRestore({ navigate }) {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }
-
-  // ── Tulis file ke Download/FinanceTracker/ via Capacitor ──
-  const writeNativeFile = async (filename, content) => {
-    try {
-      // Buat folder dulu
-      try {
-        await Filesystem.mkdir({
-          path: FOLDER,
-          directory: Directory.ExternalStorage,
-          recursive: true,
-        })
-      } catch (_) { /* folder sudah ada */ }
-
-      await Filesystem.writeFile({
-        path: `${FOLDER}/${filename}`,
-        data: content,
-        directory: Directory.ExternalStorage,
-        encoding: Encoding.UTF8,
-      })
-      return true
-    } catch (e) {
-      console.error('Native write failed:', e)
-      return false
-    }
-  }
-
-  // ── BACKUP ────────────────────────────────────────────
-  const handleBackup = async () => {
-    setLoading(true)
-    try {
-      const stamp = getStamp()
-      const filename = `FinanceTracker_Backup_${stamp}.json`
-      const content = JSON.stringify({
-        version: '1.0.0',
-        exportedAt: new Date().toISOString(),
-        data: state,
-      }, null, 2)
-
-      if (isNative()) {
-        const ok = await writeNativeFile(filename, content)
-        if (ok) {
-          showToast(`✅ Tersimpan di Downloads/${FOLDER}/${filename}`)
-        } else {
-          // Fallback ke share/download
-          browserDownload(content, filename)
-          showToast('Backup didownload!')
-        }
-      } else {
-        browserDownload(content, filename)
-        showToast('Backup didownload! Cek folder Downloads.')
-      }
-    } catch (e) {
-      showToast('Gagal backup: ' + e.message, 'error')
-    }
-    setLoading(false)
   }
 
   // ── RESTORE ───────────────────────────────────────────
@@ -159,7 +159,12 @@ export default function BackupRestore({ navigate }) {
           let parsedDate
           try { parsedDate = new Date(dateRaw).toISOString(); if (isNaN(new Date(dateRaw))) throw new Error() }
           catch { parsedDate = new Date().toISOString() }
-          transactions.push({ id: `monefy_${Date.now()}_${Math.random().toString(36).slice(2)}`, type, amount: Math.abs(amount), category: mappedCat, accountId: accountRaw || 'Import', note: noteRaw, date: parsedDate, createdAt: new Date().toISOString(), importedFrom: 'monefy' })
+          transactions.push({
+            id: `monefy_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            type, amount: Math.abs(amount), category: mappedCat,
+            accountId: accountRaw || 'Import', note: noteRaw,
+            date: parsedDate, createdAt: new Date().toISOString()
+          })
         })
 
         setPendingImport({ transactions, accountNames: [...accountNames] })
@@ -198,10 +203,10 @@ export default function BackupRestore({ navigate }) {
       <PageHeader title="Backup & Restore" onBack={() => navigate('dashboard')} />
 
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 pb-6">
-        {/* Data Stats */}
+        {/* Stats */}
         <div className="bg-card rounded-2xl border border-border p-4 mb-5">
           <p className="text-white font-bold text-sm mb-3">📦 Data Tersimpan</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-3 mb-3">
             {[
               { label: 'Transaksi', val: state.transactions.length, icon: '📋' },
               { label: 'Akun', val: state.accounts.length, icon: '🏦' },
@@ -214,7 +219,7 @@ export default function BackupRestore({ navigate }) {
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
+          <div className="grid grid-cols-2 gap-3">
             {[
               { label: 'Hutang', val: state.debts.length, icon: '🤝' },
               { label: 'Investasi', val: state.investments.length, icon: '📈' },
@@ -241,8 +246,14 @@ export default function BackupRestore({ navigate }) {
           </div>
           <div className="bg-elevated rounded-xl p-3 mb-3">
             <p className="text-text-sec text-xs font-semibold mb-1">📂 Lokasi di HP:</p>
-            <p className="text-text-muted text-xs font-mono">/storage/emulated/0/Download/{FOLDER}/</p>
+            <p className="text-text-muted text-xs font-mono">/storage/emulated/0/Download/FinanceTracker/</p>
           </div>
+          {lastBackupPath ? (
+            <div className="bg-elevated rounded-xl p-3 mb-3 border" style={{ borderColor: '#00C896' }}>
+              <p className="text-xs font-semibold mb-1" style={{ color: '#00C896' }}>✅ Backup terakhir:</p>
+              <p className="text-text-muted text-xs font-mono break-all">{lastBackupPath}</p>
+            </div>
+          ) : null}
           <Button onClick={handleBackup} disabled={loading}>
             {loading ? '⏳ Menyimpan...' : '💾 Backup Sekarang'}
           </Button>
@@ -266,7 +277,7 @@ export default function BackupRestore({ navigate }) {
           <Button variant="secondary" onClick={() => fileRef.current?.click()}>📂 Pilih File Backup</Button>
         </div>
 
-        {/* Import Monefy */}
+        {/* Import CSV */}
         <div className="bg-card rounded-2xl border border-border p-4 mb-4">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(206,147,216,0.15)' }}>
@@ -276,10 +287,6 @@ export default function BackupRestore({ navigate }) {
               <p className="text-white font-bold">Import dari Wallet Lain</p>
               <p className="text-text-muted text-xs">Monefy, Money Manager, dll (CSV)</p>
             </div>
-          </div>
-          <div className="bg-elevated rounded-xl p-3 mb-3">
-            <p className="text-text-sec text-xs font-semibold mb-1">Cara Export dari Monefy:</p>
-            <p className="text-text-muted text-xs">Settings → Export → pilih format CSV → simpan file</p>
           </div>
           <input ref={monefyRef} type="file" accept=".csv,.txt" onChange={handleMonefyFile} className="hidden" />
           <Button variant="secondary" onClick={() => monefyRef.current?.click()} disabled={importing}>
@@ -294,8 +301,8 @@ export default function BackupRestore({ navigate }) {
             {[
               'Backup rutin minimal seminggu sekali',
               'File tersimpan di Downloads/FinanceTracker/ di HP',
-              'Pindah HP? Backup dulu, lalu restore di HP baru',
-              'Simpan juga ke Google Drive biar lebih aman',
+              'Pindah HP? Backup → kirim file ke HP baru → restore',
+              'Untuk restore: tap tombol restore, cari file .json tadi',
             ].map((tip, i) => (
               <div key={i} className="flex gap-2">
                 <span style={{ color: '#00C896', fontSize: 12, marginTop: 1 }}>•</span>
@@ -307,7 +314,7 @@ export default function BackupRestore({ navigate }) {
       </div>
 
       <ConfirmDialog show={confirmRestore} title="Restore Data?" message="Data saat ini akan ditimpa dengan data backup. Tindakan ini tidak bisa dibatalkan!" danger onConfirm={doRestore} onCancel={() => setConfirmRestore(false)} />
-      <ConfirmDialog show={confirmImport} title={`Import ${pendingImport?.transactions?.length || 0} Transaksi?`} message={`Data dari wallet lain akan ditambahkan. Akun baru: ${pendingImport?.accountNames?.join(', ') || '-'}`} onConfirm={doImport} onCancel={() => setConfirmImport(false)} />
+      <ConfirmDialog show={confirmImport} title={`Import ${pendingImport?.transactions?.length || 0} Transaksi?`} message={`Data akan ditambahkan. Akun baru: ${pendingImport?.accountNames?.join(', ') || '-'}`} onConfirm={doImport} onCancel={() => setConfirmImport(false)} />
     </div>
   )
 }
