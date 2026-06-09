@@ -40,6 +40,14 @@ jobs:
       - name: 🔄 Sync Capacitor
         run: npx cap sync android
 
+      - name: 📝 Inject Storage Permissions into AndroidManifest
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          # Tambah permission WRITE & READ EXTERNAL STORAGE sebelum <application>
+          sed -i 's|<application|<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>\n    <application|g' "$MANIFEST"
+          echo "Permissions injected:"
+          grep "EXTERNAL_STORAGE\|MANAGE_EXTERNAL" "$MANIFEST"
+
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
@@ -70,4 +78,4 @@ jobs:
           retention-days: 30
 
       - name: 🎉 Build Success
-        run: echo "APK berhasil dibuild! Download dari tab Actions > Artifacts"
+        run: echo "APK berhasil dibuild!"
